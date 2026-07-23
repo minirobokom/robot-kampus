@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot Kiosk Kampus Standby</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: #0d1117;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+            transition: opacity 0.5s ease, filter 0.5s ease;
+        }
+
+        /* Mode Redup saat Standby */
+        body.standby {
+            opacity: 0.25;
+            filter: grayscale(80%);
+        }
+
+        /* Container Wajah Robot */
+        .face-container {
+            display: flex;
+            gap: 60px;
+            margin-bottom: 40px;
+        }
+
+        /* Mata Robot */
+        .eye {
+            width: 150px;
+            height: 150px;
+            background-color: #58a6ff;
+            border-radius: 50%;
+            box-shadow: 0 0 35px #58a6ff;
+            transition: all 0.2s ease;
+        }
+
+        /* Animasi Berkedip */
+        .eye.blink {
+            height: 10px;
+            margin-top: 70px;
+        }
+
+        /* Animasi Bicara (Mata Membesar) */
+        .eye.talking {
+            animation: pulse 0.4s infinite alternate;
+            background-color: #79c0ff;
+        }
+
+        /* Animasi Mendengar (Mata Berubah Warna Hijau Muda) */
+        .eye.listening {
+            background-color: #3fb950;
+            box-shadow: 0 0 35px #3fb950;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.15); box-shadow: 0 0 50px #79c0ff; }
+        }
+
+        /* Status Teks & Output */
+        .status-box {
+            text-align: center;
+            max-width: 85%;
+            min-height: 100px;
+        }
+
+        .status-text {
+            font-size: 1.3rem;
+            color: #8b949e;
+            margin-bottom: 12px;
+        }
+
+        .response-text {
+            font-size: 1.6rem;
+            color: #58a6ff;
+            font-weight: bold;
+        }
+
+        /* Indicator Standby */
+        .mic-indicator {
+            position: fixed;
+            bottom: 20px;
+            font-size: 0.9rem;
+            color: #3fb950;
+            background: rgba(255,255,255,0.05);
+            padding: 6px 16px;
+            border-radius: 20px;
+        }
+    </style>
+</head>
+<body onclick="wakeUpRobot()">
+
+    <!-- Wajah Robot -->
+    <div class="face-container">
+        <div class="eye" id="leftEye"></div>
+        <div class="eye" id="rightEye"></div>
+    </div>
+
+    <!-- Teks Respon -->
+    <div class="status-box">
+        <div class="status-text" id="statusText">Mendengarkan... Silakan langsung berbicara.</div>
+        <div class="response-text" id="responseText"></div>
+    </div>
+
+    <div class="mic-indicator" id="micStatus">🟢 MIKROFON AKTIF (ALWAYS ON)</div>
+
+    <script>
+        // ISI DENGAN API KEY & LINK GOOGLE SHEETS ANDA
+        const GEMINI_API_KEY = "PASTE_GEMINI_API_KEY_ANDA_DI_SINI";
+        const SHEETS_LINK = "PASTE_LINK_GOOGLE_SHEETS_ANDA_DI_SINI";
+
+        let faqData = [];
+        let standbyTimer;
+        let isSpeaking = false;
+
+        // Auto Berkedip Mata
+        setInterval(() => {
+            if (!isSpeaking) {
+                const eyes = document.querySelectorAll('.eye');
+                eyes.forEach(e => e.classList.add('blink'));
+                setTimeout(() => eyes.forEach(e => e.classList.remove('blink')), 200);
+            }
+        }, 4000);
+
+        // Fitur Redup Layar saat Tidak Ada Aktivitas
+        function wakeUpRobot() {
+            document.body.classList.remove('standby');
+            clearTimeout(standbyTimer);
+            standbyTimer = setTimeout(() => {
+                document.body.classList.add('standby');
+            }, 20000); // Layar meredup setelah 20 detik
+        }
+        wakeUpRobot();
+
+        // Ambil Data dari Google Sheets
+        async function loadGoogleSheetsData() {
+            try {
+                const sheetId = SHEETS_LINK.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
+                const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
+                
+                const response = await fetch(csvUrl);
+                const text = await response.text();
+                
+                const rows = text.split('\n').slice(1);
+                faqData = rows.map(row => {
+                    const cols = row.split('","').map(c => c.replace(/"/g, '').trim());
+                    return { keywords: cols[0] ? cols[0].toLowerCase().split(',') : [], answer: cols[1] || "" };
+                });
+            } catch (err) {
+                console.log("Gagal memuat Google Sheets:", err);
+            }
+        }
+        loadGoogleSheetsData();
+
+        // Fitur Pengenal Suara Otomatis (Continuous Listening)
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.lang = 'id-ID';
+            recognition.continuous = true; // Selalu mendengar terus menerus
+            recognition.interimResults = false;
+
+            recognition.onstart = () => {
+                setEyesState('listening');
+            };
+
+            recognition.onresult = async (event) => {
+                if (isSpeaking) return; // Abaikan input jika robot sedang bicara sendiri
+
+                const lastIndex = event.results.length - 1;
+                const userSpeech = event.results[lastIndex][0].transcript.trim();
+
+                if (userSpeech.length > 1) {
+                    wakeUpRobot();
+                    document.getElementById('statusText').innerText = `Mendengar: "${userSpeech}"`;
+                    await prosesPertanyaan(userSpeech);
+                }
+            };
+
+            // Jika perekaman otomatis mati/terputus, otomatis nyalakan kembali!
+            recognition.onend = () => {
+                if (!isSpeaking) {
+                    try { recognition.start(); } catch(e){}
+                }
+            };
+
+            recognition.onerror = (e) => {
+                if (!isSpeaking) {
+                    setTimeout(() => { try { recognition.start(); } catch(err){} }, 1000);
+                }
+            };
+
+            // Jalankan Perekaman Pertama Kali
+            window.addEventListener('load', () => {
+                try { recognition.start(); } catch(e){}
+            });
+        }
+
+        // Logika Menjawab (Sheets -> Gemini AI)
+        async function prosesPertanyaan(inputTeks) {
+            document.getElementById('responseText').innerText = "Sedang mencari jawaban...";
+            const inputLower = inputTeks.toLowerCase();
+
+            let jawaban = null;
+            for (let item of faqData) {
+                for (let kw of item.keywords) {
+                    if (kw.trim() !== "" && inputLower.includes(kw.trim())) {
+                        jawaban = item.answer;
+                        break;
+                    }
+                }
+                if (jawaban) break;
+            }
+
+            if (!jawaban) {
+                jawaban = await tanyaGemini(inputTeks);
+            }
+
+            document.getElementById('responseText').innerText = jawaban;
+            bicara(jawaban);
+        }
+
+        // Panggil Gemini API
+        async function tanyaGemini(prompt) {
+            try {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: `Jawab singkat dan ramah dalam Bahasa Indonesia (maksimal 2 kalimat): ${prompt}` }] }]
+                    })
+                });
+                const data = await res.json();
+                return data.candidates[0].content.parts[0].text;
+            } catch (e) {
+                return "Maaf, terjadi masalah koneksi.";
+            }
+        }
+
+        // Text To Speech & Animasi Bicara
+        function bicara(teks) {
+            isSpeaking = true;
+            try { recognition.stop(); } catch(e){} // Matikan mikrofon sementara saat robot bicara
+
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(teks);
+            utterance.lang = 'id-ID';
+            utterance.rate = 1.0;
+
+            utterance.onstart = () => {
+                setEyesState('talking');
+            };
+
+            utterance.onend = () => {
+                isSpeaking = false;
+                setEyesState('listening');
+                document.getElementById('statusText').innerText = "Mendengarkan... Silakan langsung berbicara.";
+                
+                // Nyalakan kembali mikrofon setelah selesai bicara
+                setTimeout(() => {
+                    try { recognition.start(); } catch(e){}
+                }, 500);
+            };
+
+            window.speechSynthesis.speak(utterance);
+        }
+
+        function setEyesState(state) {
+            const leftEye = document.getElementById('leftEye');
+            const rightEye = document.getElementById('rightEye');
+            
+            leftEye.className = 'eye';
+            rightEye.className = 'eye';
+
+            if (state === 'talking') {
+                leftEye.classList.add('talking');
+                rightEye.classList.add('talking');
+            } else if (state === 'listening') {
+                leftEye.classList.add('listening');
+                rightEye.classList.add('listening');
+            }
+        }
+    </script>
+</body>
+  </html>
