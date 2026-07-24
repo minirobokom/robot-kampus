@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot Kiosk Kampus</title>
+    <title>Mini Robokom - Robot Kiosk</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
@@ -18,7 +18,6 @@
             transition: opacity 0.8s ease;
         }
 
-        /* Container Wajah Robot */
         .robot-face {
             display: flex;
             flex-direction: column;
@@ -27,29 +26,25 @@
             gap: 50px;
         }
 
-        /* Container Mata */
         .eyes-container {
             display: flex;
             gap: 70px;
         }
 
-        /* Desain Mata */
         .eye {
             width: 140px;
             height: 140px;
             background-color: #3fb950;
             border-radius: 50%;
             box-shadow: 0 0 40px #3fb950;
-            transition: all 0.4s ease;
+            transition: all 0.3s ease;
         }
 
-        /* Animasi Berkedip Otomatis */
         .eye.blink {
             height: 8px !important;
             margin-top: 66px;
         }
 
-        /* Mode Sleep / Standby: Mata Menyipit */
         body.sleep .eye {
             height: 16px;
             border-radius: 20px;
@@ -58,23 +53,18 @@
             box-shadow: 0 0 15px #238636;
         }
 
-        body.sleep {
-            opacity: 0.35;
-        }
+        body.sleep { opacity: 0.35; }
 
-        /* Warna Mata Saat Robot Bicara */
         .eye.talking {
             background-color: #58a6ff;
             box-shadow: 0 0 50px #58a6ff;
         }
 
-        /* Warna Mata Saat Berpikir */
         .eye.thinking {
             background-color: #d29922;
             box-shadow: 0 0 40px #d29922;
         }
 
-        /* Desain Mulut Robot */
         .mouth {
             width: 100px;
             height: 12px;
@@ -85,45 +75,39 @@
             opacity: 0.3;
         }
 
-        /* Animasi Mulut Mengikuti Ucapan Suara */
         .mouth.talking {
             opacity: 1;
-            animation: mouthMove 0.25s infinite alternate ease-in-out;
+            animation: mouthMove 0.2s infinite alternate ease-in-out;
         }
 
         @keyframes mouthMove {
-            0% {
-                height: 10px;
-                width: 90px;
-                border-radius: 10px;
-            }
-            100% {
-                height: 60px;
-                width: 120px;
-                border-radius: 30px;
-            }
+            0% { height: 10px; width: 90px; border-radius: 10px; }
+            100% { height: 60px; width: 120px; border-radius: 30px; }
         }
     </style>
 </head>
 <body onclick="wakeUp()">
 
     <div class="robot-face">
-        <!-- Mata Kiri & Kanan -->
         <div class="eyes-container">
             <div class="eye" id="leftEye"></div>
             <div class="eye" id="rightEye"></div>
         </div>
-        <!-- Mulut Animasi -->
         <div class="mouth" id="mouth"></div>
     </div>
 
     <script>
-        // MASUKKAN API KEY GEMINI & LINK GOOGLE SHEETS ANDA
         const GEMINI_API_KEY = "PASTE_GEMINI_API_KEY_ANDA_DI_SINI";
-        const SHEETS_LINK = "PASTE_LINK_GOOGLE_SHEETS_ANDA_DI_SINI";
 
-        let faqData = [];
+        // DATA FAQ LOKAL (Instan tanpa unduh internet)
+        const localFAQ = [
+            { keywords: ["nama", "siapa kamu"], answer: "Halo! Nama saya Mini Robokom, robot pintar siap membantu kamu." },
+            { keywords: ["lokasi", "rektorat", "dimana"], answer: "Gedung Rektorat berada di sebelah utara lapangan utama kampus." },
+            { keywords: ["pendaftaran", "pmb", "daftar"], answer: "Informasi pendaftaran mahasiswa baru dapat diakses di situs pmb.kampus.ac.id." }
+        ];
+
         let isSpeaking = false;
+        let isProcessing = false;
         let sleepTimer;
 
         // Auto Berkedip Mata
@@ -135,12 +119,11 @@
             }
         }, 4000);
 
-        // Reset Timer Sleep (Mata Menyipit setelah 15 Detik Hening)
         function resetSleepTimer() {
             document.body.classList.remove('sleep');
             clearTimeout(sleepTimer);
             sleepTimer = setTimeout(() => {
-                if (!isSpeaking) {
+                if (!isSpeaking && !isProcessing) {
                     document.body.classList.add('sleep');
                 }
             }, 15000);
@@ -151,38 +134,20 @@
             startListening();
         }
 
-        // Ambil Data dari Google Sheets
-        async function loadGoogleSheetsData() {
-            try {
-                const sheetId = SHEETS_LINK.match(/\/d\/([a-zA-Z0-9-_]+)/)[1];
-                const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:csv`;
-                const response = await fetch(csvUrl);
-                const text = await response.text();
-                const rows = text.split('\n').slice(1);
-                faqData = rows.map(row => {
-                    const cols = row.split('","').map(c => c.replace(/"/g, '').trim());
-                    return { keywords: cols[0] ? cols[0].toLowerCase().split(',') : [], answer: cols[1] || "" };
-                });
-            } catch (err) {}
-        }
-        loadGoogleSheetsData();
-
-        // Speech Recognition Stabil (Tanpa Suara Bip / Notif Berulang)
+        // Speech Recognition Optimasi
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
         let recognition;
 
         if (SpeechRecognition) {
             recognition = new SpeechRecognition();
             recognition.lang = 'id-ID';
-            recognition.continuous = true;
+            recognition.continuous = false; // Diubah ke false agar lebih responsif di Android
             recognition.interimResults = false;
 
             recognition.onresult = async (event) => {
-                if (isSpeaking) return;
+                if (isSpeaking || isProcessing) return;
                 
-                const lastIndex = event.results.length - 1;
-                const userSpeech = event.results[lastIndex][0].transcript.trim();
-
+                const userSpeech = event.results[0][0].transcript.trim();
                 if (userSpeech.length > 1) {
                     wakeUp();
                     await prosesPertanyaan(userSpeech);
@@ -190,27 +155,30 @@
             };
 
             recognition.onend = () => {
-                if (!isSpeaking) {
+                // Auto restart listening jika robot tidak sedang bicara / berpikir
+                if (!isSpeaking && !isProcessing && !document.body.classList.contains('sleep')) {
                     try { recognition.start(); } catch(e){}
                 }
             };
         }
 
         function startListening() {
-            if (recognition) {
+            if (recognition && !isSpeaking && !isProcessing) {
                 try { recognition.start(); } catch(e){}
             }
         }
 
-        // Logika Respon
+        // Logika Respon Cepat
         async function prosesPertanyaan(inputTeks) {
+            isProcessing = true;
             setEyesState('thinking');
             const inputLower = inputTeks.toLowerCase();
 
+            // 1. Cek Data FAQ Lokal Terlebih Dahulu (Hanya butuh 0.001 detik)
             let jawaban = null;
-            for (let item of faqData) {
+            for (let item of localFAQ) {
                 for (let kw of item.keywords) {
-                    if (kw.trim() !== "" && inputLower.includes(kw.trim())) {
+                    if (inputLower.includes(kw)) {
                         jawaban = item.answer;
                         break;
                     }
@@ -218,57 +186,59 @@
                 if (jawaban) break;
             }
 
+            // 2. Jika Tidak Ada di FAQ, Panggil Gemini AI (Fast Flash Model)
             if (!jawaban) {
                 jawaban = await tanyaGemini(inputTeks);
             }
 
+            isProcessing = false;
             bicara(jawaban);
         }
 
-        // Panggil Gemini AI
+        // Pemanggilan API Gemini 1.5 Flash
         async function tanyaGemini(prompt) {
             try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Jawab singkat maksimal 2 kalimat Bahasa Indonesia: ${prompt}` }] }]
+                        system_instruction: {
+                            parts: [{ text: "Kamu adalah Mini Robokom, robot pintar kiosk kampus. Jawablah SELALU dalam Bahasa Indonesia, sangat singkat, ramah, dan maksimal 2 kalimat." }]
+                        },
+                        contents: [{ parts: [{ text: prompt }] }]
                     })
                 });
                 const data = await res.json();
                 return data.candidates[0].content.parts[0].text;
             } catch (e) {
-                return "Maaf, terjadi gangguan koneksi.";
+                return "Maaf, koneksi saya sedang terganggu.";
             }
         }
 
-        // Text-To-Speech + Animasi Mulut Bergerak
+        // Text-To-Speech dengan Pengaturan Suara Lokal
         function bicara(teks) {
             isSpeaking = true;
             window.speechSynthesis.cancel();
 
             const utterance = new SpeechSynthesisUtterance(teks);
             utterance.lang = 'id-ID';
-            utterance.rate = 1.0;
+            utterance.rate = 1.1; // Sedikit dipercepat agar respon terasa gesit
 
             utterance.onstart = () => {
                 setEyesState('talking');
                 document.getElementById('mouth').classList.add('talking');
             };
 
-            utterance.onend = () => {
+            const endSpeech = () => {
                 isSpeaking = false;
                 document.getElementById('mouth').classList.remove('talking');
                 setEyesState('normal');
                 resetSleepTimer();
+                startListening();
             };
 
-            utterance.onerror = () => {
-                isSpeaking = false;
-                document.getElementById('mouth').classList.remove('talking');
-                setEyesState('normal');
-                resetSleepTimer();
-            };
+            utterance.onend = endSpeech;
+            utterance.onerror = endSpeech;
 
             window.speechSynthesis.speak(utterance);
         }
@@ -289,7 +259,6 @@
             }
         }
 
-        // Jalankan Pertama Kali
         window.addEventListener('load', () => {
             resetSleepTimer();
             startListening();
