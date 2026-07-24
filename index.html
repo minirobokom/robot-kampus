@@ -225,22 +225,40 @@
             bicara(jawaban);
         }
 
-        // Panggil Gemini AI
-        async function tanyaGemini(prompt) {
-            try {
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: `Jawab singkat maksimal 2 kalimat Bahasa Indonesia: ${prompt}` }] }]
-                    })
-                });
-                const data = await res.json();
-                return data.candidates[0].content.parts[0].text;
-            } catch (e) {
-                return "Maaf, terjadi gangguan koneksi.";
-            }
+        // Panggil Gemini AI dengan Endpoint Paling Kompatibel
+async function tanyaGemini(prompt) {
+    try {
+        // Menggunakan model gemini-1.5-flash dengan endpoint paling stabil
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY.trim()}`;
+        
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ 
+                    parts: [{ 
+                        text: `Kamu adalah asisten robot kampus. Jawab pertanyaan ini dalam Bahasa Indonesia yang singkat, ramah, dan maksimal 2 kalimat: ${prompt}` 
+                    }] 
+                }]
+            })
+        });
+
+        if (!res.ok) {
+            console.error("HTTP Error:", res.status, res.statusText);
+            return "Maaf, sistem AI sedang tidak dapat dijangkau.";
         }
+
+        const data = await res.json();
+        if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
+            return data.candidates[0].content.parts[0].text;
+        } else {
+            return "Maaf, robot belum memahami pertanyaan tersebut.";
+        }
+    } catch (e) {
+        console.error("Gemini Fetch Error:", e);
+        return "Maaf, terjadi gangguan koneksi internet.";
+    }
+}
 
         // Text-To-Speech + Animasi Mulut Bergerak
         function bicara(teks) {
